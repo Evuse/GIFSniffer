@@ -1,22 +1,24 @@
+import json
 import os
 import shutil
 import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
 
+import requests
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
+from PIL import Image
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="GIFSniffer", version="1.0.0")
+app = FastAPI(title="GIFSniffer", version="1.1.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
@@ -51,6 +53,22 @@ def _ffmpeg_scale_filter(size: str) -> str:
     return presets.get(size, presets["original"])
 
 
+def _run_json_info(url: str) -> dict:
+    cmd = _build_yt_dlp_base_cmd(url)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise HTTPException(status_code=400, detail=f"Impossibile leggere il media: {proc.stderr}")
+    return json.loads(proc.stdout)
+
+
+def _pick_best_image_url(data: dict) -> str | None:
+    thumbs = data.get("thumbnails") or []
+    if thumbs:
+        thumbs = sorted(thumbs, key=lambda t: (t.get("height") or 0) * (t.get("width") or 0), reverse=True)
+        return thumbs[0].get("url")
+    return data.get("thumbnail")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -58,17 +76,10 @@ async def index(request: Request):
 
 @app.post("/api/info")
 async def media_info(payload: MediaInfoRequest):
-    cmd = _build_yt_dlp_base_cmd(str(payload.url))
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise HTTPException(status_code=400, detail=f"Impossibile leggere il media: {proc.stderr}")
-
-    import json
-
-    data = json.loads(proc.stdout)
+    data = _run_json_info(str(payload.url))
     formats = []
     for f in data.get("formats", []):
-        if f.get("vcodec") == "none":
+        if f.get("vcodec") == "none" and f.get("acodec") == "none":
             continue
         formats.append(
             {
@@ -82,115 +93,96 @@ async def media_info(payload: MediaInfoRequest):
             }
         )
 
+    image_url = _pick_best_image_url(data)
+
     return JSONResponse(
         {
             "title": data.get("title"),
             "duration": data.get("duration"),
             "uploader": data.get("uploader"),
             "formats": formats[:25],
-            "note": "Per Instagram usa cookie/login per ridurre rate limit.",
+            "image_candidate": image_url,
+            "note": "Supporto video, immagini e GIF. Per Instagram usa cookie/login per ridurre rate limit.",
         }
     )
 
 
 @app.post("/api/download/video")
-async def download_video(
-    url: str = Form(...),
-    format_id: str = Form("best"),
-    size: str = Form("original"),
-    crf: int = Form(23),
-):
+async def download_video(url: str = Form(...), format_id: str = Form("best"), size: str = Form("original"), crf: int = Form(23)):
     token = str(uuid.uuid4())
     out_file = DOWNLOAD_DIR / f"{token}.mp4"
-
     tmp_dir = Path(tempfile.mkdtemp(prefix="gifsniffer_"))
     input_file = tmp_dir / "input.mp4"
-
     dl_cmd = ["yt-dlp", "-f", format_id, "-o", str(input_file), url]
-    if "instagram.com" in url:
-        cookies_path = os.getenv("INSTAGRAM_COOKIES_FILE")
-        if cookies_path and Path(cookies_path).exists():
-            dl_cmd.extend(["--cookies", cookies_path])
-
     proc = subprocess.run(dl_cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"Download fallito: {proc.stderr}")
 
-    vf = _ffmpeg_scale_filter(size)
-    ff_cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(input_file),
-        "-vf",
-        vf,
-        "-c:v",
-        "libx264",
-        "-crf",
-        str(crf),
-        "-preset",
-        "medium",
-        "-pix_fmt",
-        "yuv420p",
-        str(out_file),
-    ]
-    ff = subprocess.run(ff_cmd, capture_output=True, text=True)
+    ff = subprocess.run(["ffmpeg", "-y", "-i", str(input_file), "-vf", _ffmpeg_scale_filter(size), "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p", str(out_file)], capture_output=True, text=True)
     shutil.rmtree(tmp_dir, ignore_errors=True)
     if ff.returncode != 0:
         raise HTTPException(status_code=500, detail=f"Transcoding fallito: {ff.stderr}")
-
     return FileResponse(out_file, media_type="video/mp4", filename=f"video_{token}.mp4")
 
 
 @app.post("/api/download/gif")
-async def download_gif(
-    url: str = Form(...),
-    fps: int = Form(12),
-    width: int = Form(480),
-    colors: int = Form(128),
-    speed: float = Form(1.0),
-):
+async def download_gif(url: str = Form(...), fps: int = Form(12), width: int = Form(480), colors: int = Form(128), speed: float = Form(1.0)):
     token = str(uuid.uuid4())
     out_file = DOWNLOAD_DIR / f"{token}.gif"
-
     tmp_dir = Path(tempfile.mkdtemp(prefix="gifsniffer_"))
     input_file = tmp_dir / "input.mp4"
     palette_file = tmp_dir / "palette.png"
 
-    dl_cmd = ["yt-dlp", "-f", "best", "-o", str(input_file), url]
-    if "instagram.com" in url:
-        cookies_path = os.getenv("INSTAGRAM_COOKIES_FILE")
-        if cookies_path and Path(cookies_path).exists():
-            dl_cmd.extend(["--cookies", cookies_path])
-
-    proc = subprocess.run(dl_cmd, capture_output=True, text=True)
+    proc = subprocess.run(["yt-dlp", "-f", "best", "-o", str(input_file), url], capture_output=True, text=True)
     if proc.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"Download fallito: {proc.stderr}")
 
     base_filter = f"fps={fps},scale={width}:-1:flags=lanczos,setpts={1/speed}*PTS"
-    pal_cmd = ["ffmpeg", "-y", "-i", str(input_file), "-vf", f"{base_filter},palettegen=max_colors={colors}", str(palette_file)]
-    gif_cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(input_file),
-        "-i",
-        str(palette_file),
-        "-lavfi",
-        f"{base_filter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5",
-        str(out_file),
-    ]
-
-    pal = subprocess.run(pal_cmd, capture_output=True, text=True)
+    pal = subprocess.run(["ffmpeg", "-y", "-i", str(input_file), "-vf", f"{base_filter},palettegen=max_colors={colors}", str(palette_file)], capture_output=True, text=True)
     if pal.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"Palette generation fallita: {pal.stderr}")
 
-    gif = subprocess.run(gif_cmd, capture_output=True, text=True)
+    gif = subprocess.run(["ffmpeg", "-y", "-i", str(input_file), "-i", str(palette_file), "-lavfi", f"{base_filter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5", str(out_file)], capture_output=True, text=True)
     shutil.rmtree(tmp_dir, ignore_errors=True)
     if gif.returncode != 0:
         raise HTTPException(status_code=500, detail=f"Conversione GIF fallita: {gif.stderr}")
 
     return FileResponse(out_file, media_type="image/gif", filename=f"gif_{token}.gif")
+
+
+@app.post("/api/download/image")
+async def download_image(url: str = Form(...), width: int = Form(0), quality: int = Form(90), output_format: str = Form("jpg")):
+    data = _run_json_info(url)
+    img_url = _pick_best_image_url(data)
+    if not img_url:
+        raise HTTPException(status_code=400, detail="Nessuna immagine trovata nella URL.")
+
+    r = requests.get(img_url, timeout=60)
+    if r.status_code != 200:
+        raise HTTPException(status_code=400, detail="Impossibile scaricare l'immagine sorgente")
+
+    token = str(uuid.uuid4())
+    ext = "jpg" if output_format.lower() not in {"jpg", "png", "webp"} else output_format.lower()
+    out_file = DOWNLOAD_DIR / f"image_{token}.{ext}"
+
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
+        tmp.write(r.content)
+        tmp_path = Path(tmp.name)
+
+    img = Image.open(tmp_path).convert("RGB")
+    tmp_path.unlink(missing_ok=True)
+
+    if width and width > 0:
+        h = int((width / img.width) * img.height)
+        img = img.resize((width, h), Image.Resampling.LANCZOS)
+
+    save_kwargs = {}
+    if ext in {"jpg", "webp"}:
+        save_kwargs["quality"] = max(35, min(100, quality))
+    img.save(out_file, format="JPEG" if ext == "jpg" else ext.upper(), **save_kwargs)
+
+    mtype = "image/jpeg" if ext == "jpg" else ("image/png" if ext == "png" else "image/webp")
+    return FileResponse(out_file, media_type=mtype, filename=out_file.name)
