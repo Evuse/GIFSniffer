@@ -1,0 +1,2 @@
+# GIFSniffer
+Sniffa le GIF
