@@ -1,0 +1,12 @@
+services:
+  gifsniffer:
+    build: .
+    container_name: gifsniffer
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/app/downloads
+      - ./cookies:/cookies
+    ports:
+      - "8000:8000"
