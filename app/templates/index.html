@@ -9,27 +9,44 @@
   <body>
     <div class="bg"></div>
     <main class="app-shell">
-      <header class="hero"><div><h1>GIFSniffer</h1><p class="subtitle">Video, immagini e GIF da Pinterest/Instagram.</p></div><span class="badge">All-in-One</span></header>
+      <header class="hero"><div><h1>GIFSniffer</h1><p class="subtitle">Controllo completo da web: video, immagini, GIF, qualità e auth Instagram.</p></div><span class="badge">Pro UI</span></header>
+
       <section class="card">
         <label for="url">URL del contenuto</label>
         <div class="url-row"><input id="url" placeholder="Incolla URL Pinterest/Instagram" /><button class="primary" onclick="loadInfo()">Analizza</button></div>
+        <details>
+          <summary>Impostazioni Instagram avanzate (opzionale)</summary>
+          <label>Username</label><input id="ig-user" placeholder="username" />
+          <label>Password</label><input id="ig-pass" type="password" placeholder="password" />
+          <label>Percorso file cookies (Netscape)</label><input id="ig-cookies" placeholder="/cookies/instagram_cookies.txt" />
+        </details>
       </section>
+
       <section class="grid">
-        <article class="card"><h2>🎬 Video</h2><form action="/api/download/video" method="post"><input name="url" id="video-url" hidden /><label>Format ID</label><input name="format_id" value="best" /><label>Dimensione</label><select name="size"><option value="original">Originale</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p</option><option value="360p">360p</option></select><label>CRF</label><input name="crf" type="number" min="18" max="30" value="23" /><button class="primary" type="submit">Scarica Video</button></form></article>
-        <article class="card"><h2>🪄 GIF da Video</h2><form action="/api/download/gif" method="post"><input name="url" id="gif-url" hidden /><label>Larghezza</label><input name="width" type="number" min="180" max="1080" value="480" /><label>FPS</label><input name="fps" type="number" min="5" max="30" value="12" /><label>Colori</label><input name="colors" type="number" min="16" max="256" value="128" /><label>Velocità</label><input name="speed" type="number" step="0.1" min="0.2" max="3" value="1.0" /><button class="primary" type="submit">Scarica GIF</button></form></article>
-        <article class="card"><h2>🖼️ Immagine / GIF diretta</h2><form action="/api/download/image" method="post"><input name="url" id="image-url" hidden /><label>Larghezza output (0=originale)</label><input name="width" type="number" min="0" max="3000" value="0" /><label>Qualità (35-100)</label><input name="quality" type="number" min="35" max="100" value="90" /><label>Formato output</label><select name="output_format"><option value="jpg">JPG</option><option value="png">PNG</option><option value="webp">WEBP</option></select><button class="primary" type="submit">Scarica Immagine/GIF</button></form></article>
+        <article class="card"><h2>🎬 Video</h2><form action="/api/download/video" method="post"><input name="url" id="video-url" hidden /><input name="instagram_username" id="video-user" hidden /><input name="instagram_password" id="video-pass" hidden /><input name="instagram_cookies_file" id="video-cookies" hidden /><label>Format ID</label><input name="format_id" value="best" /><label>Dimensione</label><select name="size"><option value="original">Originale</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p</option><option value="360p">360p</option></select><label>CRF</label><input name="crf" type="number" min="18" max="30" value="23" /><button class="primary" type="submit">Scarica Video</button></form></article>
+        <article class="card"><h2>🪄 GIF da Video</h2><form action="/api/download/gif" method="post"><input name="url" id="gif-url" hidden /><input name="instagram_username" id="gif-user" hidden /><input name="instagram_password" id="gif-pass" hidden /><input name="instagram_cookies_file" id="gif-cookies" hidden /><label>Larghezza</label><input name="width" type="number" min="180" max="1080" value="480" /><label>FPS</label><input name="fps" type="number" min="5" max="30" value="12" /><label>Colori</label><input name="colors" type="number" min="16" max="256" value="128" /><label>Velocità</label><input name="speed" type="number" step="0.1" min="0.2" max="3" value="1.0" /><button class="primary" type="submit">Scarica GIF</button></form></article>
+        <article class="card"><h2>🖼️ Immagine / GIF diretta</h2><form action="/api/download/image" method="post"><input name="url" id="image-url" hidden /><input name="instagram_username" id="image-user" hidden /><input name="instagram_password" id="image-pass" hidden /><input name="instagram_cookies_file" id="image-cookies" hidden /><label>Larghezza output (0=originale)</label><input name="width" type="number" min="0" max="3000" value="0" /><label>Qualità (35-100)</label><input name="quality" type="number" min="35" max="100" value="90" /><label>Formato output</label><select name="output_format"><option value="jpg">JPG</option><option value="png">PNG</option><option value="webp">WEBP</option></select><button class="primary" type="submit">Scarica Immagine/GIF</button></form></article>
       </section>
       <section class="card"><h2>📊 Formati disponibili</h2><pre id="info">Nessuna analisi effettuata.</pre></section>
     </main>
     <script>
       const info = document.getElementById('info');
       const urlInput = document.getElementById('url');
-      const ids = ['video-url','gif-url','image-url'];
-      urlInput.addEventListener('input', () => ids.forEach(id => document.getElementById(id).value = urlInput.value));
+      const igUser = document.getElementById('ig-user');
+      const igPass = document.getElementById('ig-pass');
+      const igCookies = document.getElementById('ig-cookies');
+      const sync = () => {
+        ['video-url','gif-url','image-url'].forEach(id => document.getElementById(id).value = urlInput.value);
+        [['video-user','gif-user','image-user'], igUser.value], [['video-pass','gif-pass','image-pass'], igPass.value], [['video-cookies','gif-cookies','image-cookies'], igCookies.value]
+          .forEach(([ids, val]) => ids.forEach(id => document.getElementById(id).value = val));
+      };
+      [urlInput, igUser, igPass, igCookies].forEach(el => el.addEventListener('input', sync));
+      sync();
       async function loadInfo() {
+        sync();
         info.textContent = 'Analisi in corso...';
         try {
-          const res = await fetch('/api/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: urlInput.value }) });
+          const res = await fetch('/api/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: urlInput.value, instagram_username: igUser.value || null, instagram_password: igPass.value || null, instagram_cookies_file: igCookies.value || null }) });
           info.textContent = JSON.stringify(await res.json(), null, 2);
         } catch { info.textContent = 'Errore durante l\'analisi.'; }
       }

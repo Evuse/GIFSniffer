@@ -25,17 +25,20 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 class MediaInfoRequest(BaseModel):
     url: HttpUrl
+    instagram_username: str | None = None
+    instagram_password: str | None = None
+    instagram_cookies_file: str | None = None
 
 
-def _build_yt_dlp_base_cmd(url: str):
+def _build_yt_dlp_base_cmd(url: str, username: str | None = None, password: str | None = None, cookies_file: str | None = None):
     cmd = ["yt-dlp", "-J", "--no-warnings", "--skip-download", url]
 
-    cookies_path = os.getenv("INSTAGRAM_COOKIES_FILE")
+    cookies_path = cookies_file or os.getenv("INSTAGRAM_COOKIES_FILE")
     if cookies_path and Path(cookies_path).exists() and "instagram.com" in url:
         cmd.extend(["--cookies", cookies_path])
 
-    username = os.getenv("INSTAGRAM_USERNAME")
-    password = os.getenv("INSTAGRAM_PASSWORD")
+    username = username or os.getenv("INSTAGRAM_USERNAME")
+    password = password or os.getenv("INSTAGRAM_PASSWORD")
     if username and password and "instagram.com" in url:
         cmd.extend(["--username", username, "--password", password])
 
@@ -53,8 +56,8 @@ def _ffmpeg_scale_filter(size: str) -> str:
     return presets.get(size, presets["original"])
 
 
-def _run_json_info(url: str) -> dict:
-    cmd = _build_yt_dlp_base_cmd(url)
+def _run_json_info(url: str, username: str | None = None, password: str | None = None, cookies_file: str | None = None) -> dict:
+    cmd = _build_yt_dlp_base_cmd(url, username=username, password=password, cookies_file=cookies_file)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise HTTPException(status_code=400, detail=f"Impossibile leggere il media: {proc.stderr}")
@@ -76,7 +79,7 @@ async def index(request: Request):
 
 @app.post("/api/info")
 async def media_info(payload: MediaInfoRequest):
-    data = _run_json_info(str(payload.url))
+    data = _run_json_info(str(payload.url), username=payload.instagram_username, password=payload.instagram_password, cookies_file=payload.instagram_cookies_file)
     formats = []
     for f in data.get("formats", []):
         if f.get("vcodec") == "none" and f.get("acodec") == "none":
@@ -108,12 +111,14 @@ async def media_info(payload: MediaInfoRequest):
 
 
 @app.post("/api/download/video")
-async def download_video(url: str = Form(...), format_id: str = Form("best"), size: str = Form("original"), crf: int = Form(23)):
+async def download_video(url: str = Form(...), format_id: str = Form("best"), size: str = Form("original"), crf: int = Form(23), instagram_username: str = Form(""), instagram_password: str = Form(""), instagram_cookies_file: str = Form("")):
     token = str(uuid.uuid4())
     out_file = DOWNLOAD_DIR / f"{token}.mp4"
     tmp_dir = Path(tempfile.mkdtemp(prefix="gifsniffer_"))
     input_file = tmp_dir / "input.mp4"
     dl_cmd = ["yt-dlp", "-f", format_id, "-o", str(input_file), url]
+    dl_cmd = _build_yt_dlp_base_cmd(url, instagram_username or None, instagram_password or None, instagram_cookies_file or None)
+    dl_cmd[1:1] = ["-f", format_id, "-o", str(input_file)]
     proc = subprocess.run(dl_cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -127,14 +132,16 @@ async def download_video(url: str = Form(...), format_id: str = Form("best"), si
 
 
 @app.post("/api/download/gif")
-async def download_gif(url: str = Form(...), fps: int = Form(12), width: int = Form(480), colors: int = Form(128), speed: float = Form(1.0)):
+async def download_gif(url: str = Form(...), fps: int = Form(12), width: int = Form(480), colors: int = Form(128), speed: float = Form(1.0), instagram_username: str = Form(""), instagram_password: str = Form(""), instagram_cookies_file: str = Form("")):
     token = str(uuid.uuid4())
     out_file = DOWNLOAD_DIR / f"{token}.gif"
     tmp_dir = Path(tempfile.mkdtemp(prefix="gifsniffer_"))
     input_file = tmp_dir / "input.mp4"
     palette_file = tmp_dir / "palette.png"
 
-    proc = subprocess.run(["yt-dlp", "-f", "best", "-o", str(input_file), url], capture_output=True, text=True)
+    dl_cmd = _build_yt_dlp_base_cmd(url, instagram_username or None, instagram_password or None, instagram_cookies_file or None)
+    dl_cmd[1:1] = ["-f", "best", "-o", str(input_file)]
+    proc = subprocess.run(dl_cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"Download fallito: {proc.stderr}")
@@ -154,8 +161,8 @@ async def download_gif(url: str = Form(...), fps: int = Form(12), width: int = F
 
 
 @app.post("/api/download/image")
-async def download_image(url: str = Form(...), width: int = Form(0), quality: int = Form(90), output_format: str = Form("jpg")):
-    data = _run_json_info(url)
+async def download_image(url: str = Form(...), width: int = Form(0), quality: int = Form(90), output_format: str = Form("jpg"), instagram_username: str = Form(""), instagram_password: str = Form(""), instagram_cookies_file: str = Form("")):
+    data = _run_json_info(url, username=instagram_username or None, password=instagram_password or None, cookies_file=instagram_cookies_file or None)
     img_url = _pick_best_image_url(data)
     if not img_url:
         raise HTTPException(status_code=400, detail="Nessuna immagine trovata nella URL.")

@@ -58,3 +58,6 @@ pre {
   padding: 14px;
   color: #9effcc;
 }
+
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
