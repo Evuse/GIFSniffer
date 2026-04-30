@@ -3,48 +3,75 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GIFSniffer</title>
+    <title>GIFSniffer — Pinterest/Instagram Downloader</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>GIFSniffer</h1>
-      <p>Scarica video da Pinterest/Instagram oppure convertili in GIF.</p>
+    <div class="bg"></div>
+    <main class="app-shell">
+      <header class="hero">
+        <div>
+          <h1>GIFSniffer</h1>
+          <p class="subtitle">Downloader moderno per Pinterest e Instagram con conversione GIF avanzata.</p>
+        </div>
+        <span class="badge">Fast • Clean • Powerful</span>
+      </header>
 
-      <label>URL del contenuto</label>
-      <input id="url" placeholder="https://..." />
-
-      <button onclick="loadInfo()">Analizza Formati</button>
-      <pre id="info"></pre>
-
-      <section>
-        <h2>Download Video</h2>
-        <form action="/api/download/video" method="post">
-          <input name="url" id="video-url" hidden />
-          <label>Format ID</label><input name="format_id" value="best" />
-          <label>Dimensione</label>
-          <select name="size">
-            <option value="original">Originale</option>
-            <option value="1080p">1080p</option>
-            <option value="720p">720p</option>
-            <option value="480p">480p</option>
-            <option value="360p">360p</option>
-          </select>
-          <label>Qualità (CRF 18-30)</label><input name="crf" type="number" min="18" max="30" value="23" />
-          <button type="submit">Scarica Video</button>
-        </form>
+      <section class="card">
+        <label for="url">URL del contenuto</label>
+        <div class="url-row">
+          <input id="url" placeholder="https://www.instagram.com/p/... oppure https://it.pinterest.com/pin/..." />
+          <button class="primary" onclick="loadInfo()">Analizza</button>
+        </div>
+        <small>Tip: incolla l'URL e scegli poi il formato ideale in base a qualità/peso.</small>
       </section>
 
-      <section>
-        <h2>Download GIF</h2>
-        <form action="/api/download/gif" method="post">
-          <input name="url" id="gif-url" hidden />
-          <label>Larghezza px</label><input name="width" type="number" min="180" max="1080" value="480" />
-          <label>FPS</label><input name="fps" type="number" min="5" max="30" value="12" />
-          <label>Colori (16-256)</label><input name="colors" type="number" min="16" max="256" value="128" />
-          <label>Velocità (1.0 normale)</label><input name="speed" type="number" step="0.1" min="0.2" max="3" value="1.0" />
-          <button type="submit">Scarica GIF</button>
-        </form>
+      <section class="grid">
+        <article class="card">
+          <h2>🎬 Scarica Video</h2>
+          <form action="/api/download/video" method="post">
+            <input name="url" id="video-url" hidden />
+            <label>Format ID</label>
+            <input name="format_id" value="best" />
+
+            <label>Dimensione</label>
+            <select name="size">
+              <option value="original">Originale</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="480p">480p</option>
+              <option value="360p">360p</option>
+            </select>
+
+            <label>Qualità (CRF 18-30)</label>
+            <input name="crf" type="number" min="18" max="30" value="23" />
+            <button class="primary" type="submit">Scarica Video</button>
+          </form>
+        </article>
+
+        <article class="card">
+          <h2>🪄 Scarica GIF</h2>
+          <form action="/api/download/gif" method="post">
+            <input name="url" id="gif-url" hidden />
+            <label>Larghezza (px)</label>
+            <input name="width" type="number" min="180" max="1080" value="480" />
+
+            <label>FPS</label>
+            <input name="fps" type="number" min="5" max="30" value="12" />
+
+            <label>Colori (16-256)</label>
+            <input name="colors" type="number" min="16" max="256" value="128" />
+
+            <label>Velocità</label>
+            <input name="speed" type="number" step="0.1" min="0.2" max="3" value="1.0" />
+            <button class="primary" type="submit">Scarica GIF</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>📊 Formati disponibili</h2>
+        <pre id="info">Nessuna analisi effettuata.</pre>
       </section>
     </main>
 
@@ -61,13 +88,17 @@
 
       async function loadInfo() {
         info.textContent = 'Analisi in corso...';
-        const res = await fetch('/api/info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: urlInput.value })
-        });
-        const data = await res.json();
-        info.textContent = JSON.stringify(data, null, 2);
+        try {
+          const res = await fetch('/api/info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: urlInput.value })
+          });
+          const data = await res.json();
+          info.textContent = JSON.stringify(data, null, 2);
+        } catch (e) {
+          info.textContent = 'Errore durante l\'analisi. Verifica URL o connessione.';
+        }
       }
     </script>
   </body>
